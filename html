@@ -1,0 +1,315 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Gesture-Based Search</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="https://cdn.jsdelivr.net/npm/handtrackjs@latest/dist/handtrack.min.js"></script>
+  <style>
+    body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; background-color: #f5f7fa; color: #333; }
+    .camera-container { position: relative; width: 100%; max-width: 640px; margin: 0 auto; border-radius: 12px; overflow: hidden; box-shadow: 0 10px 25px rgba(0,0,0,0.1); }
+    #videoElement { width: 100%; background-color: #000; transform: scaleX(-1); }
+    .canvas-overlay { position: absolute; top: 0; left: 0; width: 100%; height: 100%; pointer-events: none; }
+    .search-container { background-color: #fff; border-radius: 12px; box-shadow: 0 5px 15px rgba(0,0,0,0.05); transition: all 0.3s ease; }
+    .search-container:focus-within { box-shadow: 0 5px 15px rgba(59, 130, 246, 0.2); }
+    .gesture-feedback { min-height: 120px; border-radius: 12px; background-color: #f8fafc; border: 1px dashed #cbd5e1; }
+    .sign-guide { background-color: #f0fdf4; border-radius: 12px; }
+    .progress-bar { height: 6px; background-color: #e2e8f0; border-radius: 3px; overflow: hidden; }
+    .progress-fill { height: 100%; background-color: #3b82f6; transition: width 0.3s ease; }
+    .sign-box { transition: all 0.2s ease; }
+    .sign-box:hover { transform: translateY(-2px); box-shadow: 0 5px 15px rgba(0,0,0,0.1); }
+    @keyframes pulse { 0% { opacity: 0.6; } 50% { opacity: 1; } 100% { opacity: 0.6; } }
+    .recording { animation: pulse 1.5s infinite; }
+  </style>
+</head>
+
+<body class="min-h-screen bg-gray-50">
+  <div class="container mx-auto px-4 py-8">
+    <!-- Header -->
+    <header class="text-center mb-10">
+      <h1 class="text-4xl font-bold text-blue-800 mb-3">Gesture-Based Search</h1>
+      <p class="text-lg text-gray-600 max-w-2xl mx-auto">
+        Search the web using sign language gestures. No typing required - just show your signs to the camera!
+      </p>
+    </header>
+
+    <div class="flex flex-col lg:flex-row gap-8">
+      <!-- Main content -->
+      <div class="flex-1">
+        <!-- Camera feed -->
+        <div class="mb-8">
+          <div class="flex justify-between items-center mb-4">
+            <h2 class="text-xl font-semibold text-gray-800">Sign Recognition</h2>
+            <div id="status" class="text-sm font-medium px-3 py-1 rounded-full bg-blue-100 text-blue-800 flex items-center">
+              <span id="statusText">Loading model...</span>
+            </div>
+          </div>
+
+          <div class="camera-container bg-black">
+            <video id="videoElement" autoplay muted playsinline></video>
+            <canvas id="canvas" class="canvas-overlay"></canvas>
+          </div>
+
+          <div class="flex justify-between mt-4">
+            <button id="startBtn" class="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 disabled:opacity-50 disabled:cursor-not-allowed">Start Recognition</button>
+            <button id="clearBtn" class="px-4 py-2 bg-gray-200 text-gray-800 rounded-lg hover:bg-gray-300">Clear Text</button>
+          </div>
+        </div>
+
+        <!-- Gesture feedback -->
+        <div class="mb-8">
+          <h2 class="text-xl font-semibold text-gray-800 mb-4">Gesture Feedback</h2>
+          <div class="gesture-feedback p-4 flex flex-col">
+            <div class="flex items-center mb-2">
+              <div class="w-4 h-4 rounded-full bg-blue-500 mr-2" id="detectionIndicator"></div>
+              <span id="detectionText" class="text-sm font-medium">No gesture detected</span>
+            </div>
+            <div class="progress-bar mb-4">
+              <div class="progress-fill" id="confidenceBar" style="width: 0%"></div>
+            </div>
+            <div class="flex-grow flex items-center justify-center">
+              <span id="currentGesture" class="text-3xl font-bold text-blue-600">-</span>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Search panel -->
+      <div class="w-full lg:w-1/3">
+        <div class="sticky top-8">
+          <!-- Search box -->
+          <div class="search-container p-4 mb-8">
+            <h2 class="text-xl font-semibold text-gray-800 mb-4">Search Translation</h2>
+            <div class="flex">
+              <input type="text" id="searchInput" class="flex-grow px-4 py-2 border border-gray-300 rounded-l-lg focus:outline-none focus:ring-2 focus:ring-blue-500" placeholder="Your search will appear here..." readonly>
+              <button id="searchBtn" class="px-4 py-2 bg-blue-600 text-white rounded-r-lg hover:bg-blue-700">Search</button>
+            </div>
+            <div class="mt-3 flex items-center">
+              <div id="recordingIndicator" class="w-3 h-3 rounded-full bg-red-500 mr-2 hidden"></div>
+              <span id="actionText" class="text-sm text-gray-600">Ready to accept gestures</span>
+            </div>
+          </div>
+
+          <!-- Sign guide -->
+          <div class="sign-guide p-4 mb-8">
+            <h2 class="text-xl font-semibold text-gray-800 mb-4">Sign Guide</h2>
+            <div class="grid grid-cols-3 gap-3">
+              <div class="sign-box p-3 bg-white rounded-lg text-center">
+                <div class="text-2xl mb-1">👆</div><div class="text-sm font-medium">Letter A</div>
+              </div>
+              <div class="sign-box p-3 bg-white rounded-lg text-center">
+                <div class="text-2xl mb-1">✌️</div><div class="text-sm font-medium">Letter B</div>
+              </div>
+              <div class="sign-box p-3 bg-white rounded-lg text-center">
+                <div class="text-2xl mb-1">🤟</div><div class="text-sm font-medium">Letter C</div>
+              </div>
+              <div class="sign-box p-3 bg-white rounded-lg text-center">
+                <div class="text-2xl mb-1">👌</div><div class="text-sm font-medium">Letter D</div>
+              </div>
+              <div class="sign-box p-3 bg-white rounded-lg text-center">
+                <div class="text-2xl mb-1">👍</div><div class="text-sm font-medium">Letter E</div>
+              </div>
+              <div class="sign-box p-3 bg-white rounded-lg text-center">
+                <div class="text-2xl mb-1">👊</div><div class="text-sm font-medium">Space</div>
+              </div>
+            </div>
+          </div>
+
+          <!-- Recent searches -->
+          <div class="bg-white rounded-lg p-4">
+            <h2 class="text-xl font-semibold text-gray-800 mb-4">Recent Searches</h2>
+            <ul id="recentSearches" class="space-y-2">
+              <li class="text-gray-500 italic">No recent searches</li>
+            </ul>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    const modelParams = { flipHorizontal: true, maxNumBoxes: 1, iouThreshold: 0.5, scoreThreshold: 0.7 };
+    let model = null, isDetecting = false, currentGesture = '', searchText = '', recentSearches = [], detectionTimeout = null;
+    const video = document.getElementById('videoElement'), canvas = document.getElementById('canvas'), ctx = canvas.getContext('2d');
+
+    const startBtn = document.getElementById('startBtn'), clearBtn = document.getElementById('clearBtn'),
+          searchBtn = document.getElementById('searchBtn'), searchInput = document.getElementById('searchInput'),
+          statusText = document.getElementById('statusText'), detectionIndicator = document.getElementById('detectionIndicator'),
+          detectionText = document.getElementById('detectionText'), confidenceBar = document.getElementById('confidenceBar'),
+          currentGestureDisplay = document.getElementById('currentGesture'), recordingIndicator = document.getElementById('recordingIndicator'),
+          actionText = document.getElementById('actionText'), recentSearchesList = document.getElementById('recentSearches');
+
+    const signMappings = { 'thumb up': 'E', 'victory': 'B', 'ok': 'D', 'fist': ' ', 'pointing up': 'A', 'iloveyou': 'C', 'open hand': ' ' };
+
+    handTrack.load(modelParams).then(loadedModel => {
+      model = loadedModel;
+      statusText.textContent = 'Model loaded';
+      document.getElementById('status').className = 'text-sm font-medium px-3 py-1 rounded-full bg-green-100 text-green-800 flex items-center';
+      startBtn.disabled = false;
+    });
+
+    startBtn.addEventListener('click', () => {
+      if (isDetecting) {
+        stopDetection();
+        startBtn.textContent = 'Start Recognition';
+        recordingIndicator.classList.add('hidden');
+        actionText.textContent = 'Gesture recognition paused';
+      } else {
+        startDetection();
+        startBtn.textContent = 'Stop Recognition';
+        recordingIndicator.classList.remove('hidden');
+        recordingIndicator.classList.add('recording');
+        actionText.textContent = 'Recording gestures...';
+      }
+    });
+
+    clearBtn.addEventListener('click', () => {
+      searchText = '';
+      searchInput.value = '';
+      currentGesture = '';
+      currentGestureDisplay.textContent = '-';
+      confidenceBar.style.width = '0%';
+      detectionIndicator.className = 'w-4 h-4 rounded-full bg-gray-500 mr-2';
+      detectionText.textContent = 'No gesture detected';
+    });
+
+    searchBtn.addEventListener('click', () => {
+      if (searchText.trim() === '') return;
+      if (!recentSearches.includes(searchText)) {
+        recentSearches.unshift(searchText);
+        if (recentSearches.length > 5) recentSearches.pop();
+        updateRecentSearches();
+      }
+      alert(`Searching for: ${searchText}`);
+    });
+
+    function updateRecentSearches() {
+      recentSearchesList.innerHTML = '';
+      if (recentSearches.length === 0) {
+        recentSearchesList.innerHTML = '<li class="text-gray-500 italic">No recent searches</li>';
+        return;
+      }
+      recentSearches.forEach(search => {
+        const li = document.createElement('li');
+        li.className = 'flex items-center justify-between bg-gray-50 p-2 rounded';
+        li.innerHTML = `<span>${search}</span> <button class="text-blue-600 hover:text-blue-800 text-sm" data-search="${search}">Search again</button>`;
+        recentSearchesList.appendChild(li);
+      });
+      document.querySelectorAll('#recentSearches button').forEach(btn => {
+        btn.addEventListener('click', e => {
+          const search = e.target.getAttribute('data-search');
+          searchInput.value = search;
+          searchText = search;
+        });
+      });
+    }
+
+    async function startDetection() {
+      if (!model) return;
+      const stream = await navigator.mediaDevices.getUserMedia({ video: true });
+      video.srcObject = stream;
+      video.addEventListener('loadedmetadata', () => {
+        canvas.width = video.videoWidth;
+        canvas.height = video.videoHeight;
+      });
+      isDetecting = true;
+      detectGestures();
+    }
+
+    function stopDetection() {
+      isDetecting = false;
+      if (video.srcObject) {
+        video.srcObject.getTracks().forEach(track => track.stop());
+        video.srcObject = null;
+      }
+    }
+
+    function detectGestures() {
+      if (!isDetecting) return;
+      model.detect(video).then(predictions => {
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
+        if (predictions.length > 0) {
+          const hand = predictions[0];
+          ctx.strokeStyle = '#00FFFF';
+          ctx.lineWidth = 4;
+          ctx.strokeRect(hand.bbox[0], hand.bbox[1], hand.bbox[2], hand.bbox[3]);
+          detectionIndicator.className = 'w-4 h-4 rounded-full bg-green-500 mr-2';
+          detectionText.textContent = 'Gesture detected';
+          confidenceBar.style.width = `${Math.round(hand.score * 100)}%`;
+          determineGesture(hand);
+          if (detectionTimeout) clearTimeout(detectionTimeout);
+          detectionTimeout = setTimeout(() => {
+            detectionIndicator.className = 'w-4 h-4 rounded-full bg-gray-500 mr-2';
+            detectionText.textContent = 'No gesture detected';
+            confidenceBar.style.width = '0%';
+          }, 1000);
+        }
+        requestAnimationFrame(detectGestures);
+      }).catch(err => {
+        console.error('Detection error:', err);
+        requestAnimationFrame(detectGestures);
+      });
+    }
+// ...existing code...
+
+function determineGesture(hand) {
+  let gesture = '';
+  // Map handtrack.js labels to your gestures
+  switch (hand.label) {
+    case 'open':
+      gesture = 'open hand';
+      break;
+    case 'closed':
+      gesture = 'fist';
+      break;
+    case 'point':
+      gesture = 'pointing up';
+      break;
+    case 'pinch':
+      gesture = 'ok';
+      break;
+    case 'thumb':
+      gesture = 'thumb up';
+      break;
+    case 'victory':
+      gesture = 'victory';
+      break;
+    case 'iloveyou':
+      gesture = 'iloveyou';
+      break;
+    default:
+      gesture = '';
+  }
+
+  if (gesture && gesture !== currentGesture) {
+    currentGesture = gesture;
+    currentGestureDisplay.textContent = gesture;
+    const mappedLetter = signMappings[gesture] || '';
+    if (mappedLetter) {
+      searchText += mappedLetter;
+      searchInput.value = searchText;
+    }
+  }
+}
+
+// ...existing code...
+    function determineGesture(hand) {
+      let gesture = '';
+      if (hand.label === 'open') gesture = 'open hand';
+      else if (hand.label === 'closed') gesture = 'fist';
+      else if (hand.label === 'point') gesture = 'pointing up';
+      if (gesture && gesture !== currentGesture) {
+        currentGesture = gesture;
+        currentGestureDisplay.textContent = gesture;
+        const mappedLetter = signMappings[gesture] || '';
+        if (mappedLetter) {
+          searchText += mappedLetter;
+          searchInput.value = searchText;
+        }
+      }
+    }
+    updateRecentSearches();
+  </script>
+</body>
+</html>
